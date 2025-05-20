@@ -11,7 +11,9 @@ import torch
 import torch.nn as nn 
 import torch.nn.functional as F
 import numpy as np
-from bend.models.dilated_cnn import ConvNetConfig, ConvNetModel, OneHotEmbedding
+from bend.models.dilated_cnn import ConvNetConfig, ConvNetForMaskedLM, OneHotEmbedding,ConvNetModel
+from TorchCRF import CRF
+
 
 class CustomDataParallel(torch.nn.DataParallel):
     """
@@ -155,6 +157,7 @@ class CNN(nn.Module):
         self.softmax =  nn.Softmax(dim = -1)
         self.softplus = nn.Softplus()
         self.sigmoid = nn.Sigmoid()
+        self.crf=CRF(self.output_size)
         
     def forward(self, x, activation = 'none', length = None, **kwargs):
         """
@@ -224,6 +227,7 @@ class ConvNetForSupervised(nn.Module):
         kernel_size_downstream=3, 
         upsample_factor : Union[bool, int] = False, 
         output_downsample_window = None,
+        pretrained_path=None,
         **kwargs, 
     ):
         """
@@ -271,8 +275,13 @@ class ConvNetForSupervised(nn.Module):
                                                initializer_range=initializer_range)
         
 
-        self.encoder = ConvNetModel(self.config)
-
+        
+        if pretrained_path:
+            print("sohan")
+            mlm_encoder = ConvNetForMaskedLM.from_pretrained(pretrained_path)
+            self.encoder=mlm_encoder.model
+        else:
+            self.encoder = ConvNetModel(self.config)
 
         self.downstream_cnn = CNN(input_size = hidden_size, output_size = output_size,
                                     hidden_size = hidden_size_downstream,
@@ -281,6 +290,8 @@ class ConvNetForSupervised(nn.Module):
                                     output_downsample_window= output_downsample_window)
         self.softmax =  nn.Softmax(dim = -1)
         self.sigmoid = nn.Sigmoid()
+        # self.crf=CRF(output_size)
+
 
     def forward(self, x, activation = 'none', **kwargs):
         """
@@ -303,6 +314,3 @@ class ConvNetForSupervised(nn.Module):
         x = self.downstream_cnn(x, activation = activation, **kwargs)
 
         return x
-
-    
-       

@@ -39,25 +39,24 @@ model:
   output_downsample_window: ${datadims.output_downsample_window.${task}}
 optimizer : 
   _target_ : torch.optim.AdamW 
-  lr : 0.001
-  weight_decay: 0.01
+  lr : 0.00001
+  weight_decay: 0.1
 data:
   _target_: bend.utils.data_downstream.get_data
-  batch_size : 8
-  num_workers : 2
+  batch_size : 2
+  num_workers : 0
   padding_value : -100
   shuffle : 100
   parent_dir: ./data/
   data_dir : ${data.parent_dir}/${task}/${embedder}/
   cross_validation : 0 # which split to run in the cross validation
 params:
-  epochs: 100
+  epochs: 10
   load_checkpoint: false
   mode: train
-  gradient_accumulation_steps: 1
+  gradient_accumulation_steps: 4
   criterion: bce
-  class_weights:
-    - 82.86
+  class_weights: null
   metric : auprc
   activation : none
 wandb:

@@ -40,21 +40,21 @@ model:
   output_downsample_window : 512
 optimizer : 
   _target_ : torch.optim.AdamW 
-  lr : 0.003
+  lr : 0.00001
   weight_decay: 0.01
 data:
   _target_: bend.utils.data_downstream.get_data
   data_dir : ./data/${task}/${embedder}/
   cross_validation : false
-  batch_size : 256
+  batch_size : 32
   num_workers : 0
   padding_value : -100
   shuffle : 200
 params:
-  epochs: 100
+  epochs: 5
   load_checkpoint: false
   mode: train
-  gradient_accumulation_steps: 1
+  gradient_accumulation_steps: 8
   criterion: bce
   class_weights: null
   metric : auroc

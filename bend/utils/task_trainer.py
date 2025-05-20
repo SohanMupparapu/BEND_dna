@@ -253,7 +253,7 @@ class BaseTrainer:
             }, f'{self.config.output_dir}/checkpoints/epoch_{epoch}.pt')
         return
     
-    def _log_loss(self, epoch, train_loss, val_loss, val_metric):
+    def _log_loss(self, epoch, train_loss, val_loss, val_metric,test_loss,test_metric):
         df = pd.read_csv(f'{self.config.output_dir}/losses.csv')
         df = pd.concat([df, pd.DataFrame([[epoch, train_loss, val_loss, val_metric]], 
                                          columns = ['Epoch', 'train_loss', 'val_loss', f'val_{self.config.params.metric}'])
@@ -261,10 +261,13 @@ class BaseTrainer:
         df.to_csv(f'{self.config.output_dir}/losses.csv', index = False)
         return
     
-    def _log_wandb(self, epoch, train_loss, val_loss, val_metric):
+    def _log_wandb(self, epoch, train_loss, val_loss, val_metric,test_loss,test_metric):
         wandb.log({'train_loss': train_loss, 
                    'val_loss': val_loss, 
-                   f'val_{self.config.params.metric}': val_metric}, 
+                   f'val_{self.config.params.metric}': val_metric,
+                   'test_loss':test_loss,
+                   'test_{self.config.params.metric}':test_metric
+                   }, 
                    step = epoch)
         
         # wandb.log({"Training latent with labels": wandb.Image(plt)})
@@ -421,21 +424,22 @@ class BaseTrainer:
             train_loss = self.train_epoch(train_loader)
             val_loss, val_metrics = self.validate(val_loader)
             val_metric = val_metrics[0]
-            #test_loss, test_metric = self.test(test_loader, overwrite=False)
+            test_loss, test_metrics = self.validate(test_loader)
+            test_metric=test_metrics[0]
             #print('TEST:', test_loss, test_metric, checkpoint = epoch)
             # save epoch in output dir
             self._save_checkpoint(epoch, train_loss, val_loss, val_metric)
             # log losses to csv
-            self._log_loss(epoch, train_loss, val_loss, val_metric)
+            self._log_loss(epoch, train_loss, val_loss, val_metric,test_loss,test_metric)
             # log to wandb 
-            self._log_wandb(epoch, train_loss, val_loss, val_metric)
-            print(f'Epoch: {epoch}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, Val {self.config.params.metric}: {val_metric:.4f}')
+            self._log_wandb(epoch, train_loss, val_loss, val_metric,test_loss,test_metric)
+            print(f'Epoch: {epoch}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, Val {self.config.params.metric}: {val_metric:.4f} test_loss: {test_loss:.4f}, Test {self.config.params.metric}: {test_metric:.4f}')
         return
     
-    def train_step(self, batch, idx = 0):
+    def train_step(self, batch, idx=0):
         """
         Performs a single training step.
-        
+
         Parameters
         ----------
         batch : tuple
@@ -452,19 +456,35 @@ class BaseTrainer:
         self.model.train()
         
         data, target = batch
+        # print(data.shape)
+        # Create mask where target is not the ignore index
+        # mask = target != -100
+        # Replace ignore index (-100) with -1 to match what CRF expects
+        # target[target == -100] = -1
+        # print(target.shape)
+        # Automatic mixed precision (for cuda devices)
         with torch.autocast(device_type='cuda', dtype=torch.float16):
-            output = self.model(x = data.to(self.device, non_blocking=True), length = target.shape[-1], 
-                                activation = self.config.params.activation) 
-    
-            loss = self.criterion(output, target.to(self.device, non_blocking=True).long())
-            loss = loss / self.gradient_accumulation_steps
-            # Accumulates scaled gradients.
+            output = self.model(
+                x=data.to(self.device, non_blocking=True),
+                length=target.shape[-1],
+                activation=self.config.params.activation
+            )
+            
+            # loss = -self.model.crf(
+            #     output,
+            #     target.to(self.device, non_blocking=True).long(),
+            #     mask=mask.to(self.device, non_blocking=True)
+            # )
+            # loss = loss.mean() / self.gradient_accumulation_steps  # Normalization after mean
+            loss=self.criterion(output,target.to(self.device,non_blocking=True).long())
+            loss=loss/self.gradient_accumulation_steps
+            # Backward pass with gradient scaling
             self.scaler.scale(loss).backward()
-            if ((idx + 1) % self.gradient_accumulation_steps == 0) : #or (idx + 1 == len_dataloader):
+            if ((idx + 1) % self.gradient_accumulation_steps == 0):
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
-                self.optimizer.zero_grad(set_to_none = True)
-            
+                self.optimizer.zero_grad(set_to_none=True)
+        
         return loss.item()
 
     def validate(self, data_loader):
@@ -484,31 +504,52 @@ class BaseTrainer:
             The values of the validation metrics.
         """
         self.model.eval()
-        loss = 0
+        total_loss = 0
         outputs = []
         targets_all = []
+        
         with torch.no_grad():
             for idx, (data, target) in enumerate(data_loader):
-                output = self.model(data.to(self.device), activation = self.config.params.activation)
-                loss += self.criterion(output, target.to(self.device).long()).item()
-
-                if  self.config.params.criterion == 'bce': 
-                    outputs.append(self.model.sigmoid(output).detach().cpu())
-                else: 
-                    outputs.append(torch.argmax(self.model.softmax(output), dim=-1).detach().cpu()) 
+                # mask = target != -100
+                # target[target == -100] = -1
+                data = data.to(self.device)
+                target = target.to(self.device)
+                # mask = mask.to(self.device)
                 
-                targets_all.append(target.detach().cpu())  
-
-        loss /= (idx + 1) 
-        # compute metrics
-        # save targets and outputs 
+                output = self.model(data, activation=self.config.params.activation)
+                
+                # batch_loss = -self.model.crf(output, target.long(), mask=mask).mean()
+                batch_loss=self.criterion(output,target.long()).item()
+                total_loss += batch_loss
+                
+                if self.config.params.criterion == 'bce':
+                    # For BCE, use the sigmoid output directly
+                    outputs.append(self.model.sigmoid(output).detach().cpu())
+                else:
+                    # Get predicted sequences using viterbi_decode and pad them.
+                    # Convert each predicted sequence to a tensor on the same device.
+                    # pred_seq = self.model.crf.viterbi_decode(output, mask=mask)
+                    # padded_preds = torch.nn.utils.rnn.pad_sequence(
+                    #     [torch.tensor(seq, device=self.device) for seq in pred_seq],
+                    #     batch_first=True,
+                    #     padding_value=-1
+                    # ).detach().cpu()
+                    outputs.append(torch.argmax(self.model.softmax(output),dim=-1).detach().cpu())
+                
+                targets_all.append(target.detach().cpu())
+        
+        avg_loss = total_loss / (idx + 1)
+        
+        # Depending on metric requirements, concatenate or flatten outputs and targets.
         try:
-            metrics = self._calculate_metric(torch.cat(targets_all), 
-                                              torch.cat(outputs))
-        except:
-            metrics = self._calculate_metric(torch.cat([i.flatten() for i in targets_all]), 
-                                              torch.cat([i.flatten() for i in outputs]))
-        return loss, metrics
+            metrics = self._calculate_metric(torch.cat(targets_all), torch.cat(outputs))
+        except Exception as e:
+            # Fallback: flatten each tensor before concatenating
+            metrics = self._calculate_metric(
+                torch.cat([i.flatten() for i in targets_all]),
+                torch.cat([i.flatten() for i in outputs])
+            )
+        return avg_loss, metrics
 
     def test(self, test_loader, checkpoint = None, overwrite=False):
         """
@@ -570,7 +611,4 @@ class BaseTrainer:
         # save metrics to best model metrics
         #metrics = metrics.drop_duplicates().reset_index(drop=True)
         metrics.to_csv(f'{self.config.output_dir}/best_model_metrics.csv', index = False)
-        return loss, metric 
-    
-
-    
+        return loss, metric
