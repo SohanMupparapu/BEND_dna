@@ -40,7 +40,7 @@ model:
 optimizer : 
   _target_ : torch.optim.AdamW 
   lr : 0.00001
-  weight_decay: 0.1
+  weight_decay: 0.01
 data:
   _target_: bend.utils.data_downstream.get_data
   batch_size : 2
@@ -56,7 +56,8 @@ params:
   mode: train
   gradient_accumulation_steps: 4
   criterion: bce
-  class_weights: null
+  class_weights:
+    - 82.86
   metric : auprc
   activation : none
 wandb:
