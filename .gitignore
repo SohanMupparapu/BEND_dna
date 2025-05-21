@@ -1,5 +1,6 @@
 # sbatch scripts 
 scripts/submit.sh
+checkpoints/
 # hydra logs
 outputs/
 slurm*out
