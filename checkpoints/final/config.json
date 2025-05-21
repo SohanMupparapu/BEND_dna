@@ -1,0 +1,16 @@
+{
+  "architectures": [
+    "ConvNetForMaskedLM"
+  ],
+  "dilation_cycle": 6,
+  "dilation_double_every": 1,
+  "dilation_max": 32,
+  "hidden_size": 512,
+  "initializer_range": 0.02,
+  "kernel_size": 9,
+  "model_type": "ConvNet",
+  "n_layers": 30,
+  "torch_dtype": "float32",
+  "transformers_version": "4.51.3",
+  "vocab_size": 7
+}
