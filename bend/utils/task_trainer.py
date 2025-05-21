@@ -266,7 +266,7 @@ class BaseTrainer:
                    'val_loss': val_loss, 
                    f'val_{self.config.params.metric}': val_metric,
                    'test_loss':test_loss,
-                   'test_{self.config.params.metric}':test_metric
+                   f'test_{self.config.params.metric}':test_metric
                    }, 
                    step = epoch)
         
