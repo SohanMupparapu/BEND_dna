@@ -75,47 +75,38 @@ def worker_init_fn(self, _):
 
 
 
+import itertools
+
 def return_dataloader(data : Union[str, list], 
                       batch_size : int = 8, 
                       num_workers : int = 0,
                       padding_value = -100, 
-                      shuffle : int = None):
+                      shuffle : int = None,
+                      sample_fraction : float = 0.1,
+                      total_samples : int = None):
     """
-    Function to return a dataloader from a list of tar files or a single one.
-    
-    Parameters
-    ----------
-    data : Union[str, list]
-        Path to single tar file or list of paths to tar files.
-    batch_size : int, optional
-        Batch size. The default is 8.
-    num_workers : int, optional
-        Number of workers for data loading. The default is 0.
-    padding_value : int, optional
-        Value to pad with. The default is -100.
-    shuffle : int, optional
-        Whether to shuffle the data. The default is None.
+    Load a WebDataset and return a dataloader that optionally only includes a fraction of the data.
     """
-
-    # '''Load data to dataloader from a list of paths or a single path'''
     if isinstance(data, str):
         data = [data]
     dataset = wds.WebDataset(data)
     if shuffle is not None:
         dataset = dataset.shuffle(shuffle)
-    dataset = dataset.decode() # iterator over samples - each sample is dict with keys "input.npy" and "output.npy"
+    dataset = dataset.decode()
     dataset = dataset.to_tuple("input.npy", "output.npy")
-    dataset = dataset.map_tuple(torch.from_numpy, torch.from_numpy) # TODO any specific dtype requirements or all handled already?
+    dataset = dataset.map_tuple(torch.from_numpy, torch.from_numpy)
+    dataset = dataset.map_tuple(torch.squeeze, torch.squeeze)
+    dataset = dataset.batched(batch_size, collation_fn=None)
+    dataset = dataset.map(partial(collate_fn_pad_to_longest, padding_value=padding_value))
 
-    # untested from here on
-    dataset = dataset.map_tuple(torch.squeeze, torch.squeeze) # necessary for collate_fn_pad_to_longest ?
-    dataset = dataset.batched(batch_size, collation_fn = None) #returns list of tuples
-    dataset = dataset.map(partial(collate_fn_pad_to_longest, padding_value = padding_value))
-
+    if sample_fraction < 1.0 and total_samples is not None:
+        num_samples = int(sample_fraction * total_samples)
+        dataset = dataset.with_length(num_samples)  # helps WebLoader avoid hanging
+        dataset = itertools.islice(dataset, num_samples)
 
     dataloader = wds.WebLoader(dataset, num_workers=num_workers, batch_size=None)
-
     return dataloader
+
 
 def get_data(data_dir : str, 
             train_data : List[str] = None, 
