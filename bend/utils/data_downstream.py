@@ -100,6 +100,7 @@ def return_dataloader(data : Union[str, list],
     dataset = dataset.map(partial(collate_fn_pad_to_longest, padding_value=padding_value))
 
     if sample_fraction < 1.0 and total_samples is not None:
+        print("data_sohan")
         num_samples = int(sample_fraction * total_samples)
         dataset = dataset.with_length(num_samples)  # helps WebLoader avoid hanging
         dataset = itertools.islice(dataset, num_samples)
@@ -191,16 +192,15 @@ def get_data(data_dir : str,
     #     test_data = [f'{data_dir}/{x}' for x in test_data] if test_data else None
 
     # get dataloaders
-    # import ipdb; ipdb.set_trace()
     train_dataloader = return_dataloader(train_data, batch_size = batch_size, 
                                          num_workers = num_workers, 
                                          padding_value=padding_value, 
-                                         shuffle = shuffle) if train_data else None
+                                         shuffle = shuffle,total_samples=743095) if train_data else None
     valid_dataloader = return_dataloader(valid_data, batch_size = batch_size, 
                                          num_workers = num_workers, 
-                                         padding_value=padding_value, ) if valid_data else None
+                                         padding_value=padding_value,total_samples=109717 ) if valid_data else None
     test_dataloader = return_dataloader(test_data, batch_size = batch_size, 
                                         num_workers = num_workers, 
-                                        padding_value=padding_value, ) if test_data else None
+                                        padding_value=padding_value,total_samples=106227 ) if test_data else None
 
     return train_dataloader, valid_dataloader, test_dataloader
