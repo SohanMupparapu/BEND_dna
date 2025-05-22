@@ -102,8 +102,9 @@ def return_dataloader(data : Union[str, list],
     if sample_fraction < 1.0 and total_samples is not None:
         print("data_sohan")
         num_samples = int(sample_fraction * total_samples)
-        dataset = dataset.with_length(num_samples)  # helps WebLoader avoid hanging
-        dataset = itertools.islice(dataset, num_samples)
+        dataset = dataset.slice(num_samples)
+        # dataset = dataset.with_length(num_samples)  # helps WebLoader avoid hanging
+        # dataset = itertools.islice(dataset, num_samples)
 
     dataloader = wds.WebLoader(dataset, num_workers=num_workers, batch_size=None)
     return dataloader
@@ -195,12 +196,12 @@ def get_data(data_dir : str,
     train_dataloader = return_dataloader(train_data, batch_size = batch_size, 
                                          num_workers = num_workers, 
                                          padding_value=padding_value, 
-                                         shuffle = shuffle,total_samples=743095) if train_data else None
+                                         shuffle = shuffle,sample_fraction=0.1,total_samples=743095) if train_data else None
     valid_dataloader = return_dataloader(valid_data, batch_size = batch_size, 
                                          num_workers = num_workers, 
-                                         padding_value=padding_value,total_samples=109717 ) if valid_data else None
+                                         padding_value=padding_value,sample_fraction=1,total_samples=109717 ) if valid_data else None
     test_dataloader = return_dataloader(test_data, batch_size = batch_size, 
                                         num_workers = num_workers, 
-                                        padding_value=padding_value,total_samples=106227 ) if test_data else None
+                                        padding_value=padding_value,sample_fraction=1,total_samples=106227 ) if test_data else None
 
     return train_dataloader, valid_dataloader, test_dataloader
