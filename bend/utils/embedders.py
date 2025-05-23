@@ -164,10 +164,11 @@ class GPNEmbedder(BaseEmbedder):
 
 
 
+from bend.models.dilated_cnn import OneHotEmbedding
 class ConvNetEmbedder(BaseEmbedder):
     """
     Embed using the GPN-inspired ConvNet baseline LM trained in BEND.
-    Modified to use one-hot encoding from OneHotEmbedder instead of tokenizer.
+    Uses OneHotEmbedder for integer encoding, model handles one-hot embedding.
     """
 
     def load_model(self, model_path, **kwargs):
@@ -179,20 +180,15 @@ class ConvNetEmbedder(BaseEmbedder):
         model_path : str
             The path to the model directory.
         """
-        logging.set_verbosity_error()
-        if not os.path.exists(model_path):
-            print(f'Path {model_path} does not exist, downloading...')
-            download_model(model='convnet', destination_dir=model_path)
-        
         mlm_encoder = ConvNetForMaskedLM.from_pretrained(model_path)
         self.model = mlm_encoder.model.to(device).eval()
 
-        # Use OneHotEmbedder for encoding
+        # Use OneHotEmbedder for integer encoding
         self.encoder = OneHotEmbedder()
 
     def embed(self, sequences: List[str], disable_tqdm: bool = False, upsample_embeddings: bool = False):
         """
-        Embed sequences using one-hot encoding and the ConvNet model.
+        Embed sequences using integer encoding and the ConvNet model.
 
         Parameters
         ----------
@@ -206,15 +202,14 @@ class ConvNetEmbedder(BaseEmbedder):
         """
         embeddings = []
         with torch.no_grad():
-            encoded_sequences = self.encoder.embed(sequences, disable_tqdm=disable_tqdm, return_onehot=True)
+            encoded_sequences = self.encoder.embed(sequences, disable_tqdm=disable_tqdm, return_onehot=False)
 
             for seq in tqdm(encoded_sequences, disable=disable_tqdm):
-                tensor_input = torch.tensor(seq, dtype=torch.float32).to(device)  # (1, seq_len, vocab_size)
-                output = self.model(tensor_input).last_hidden_state
+                tensor_input = torch.tensor(seq, dtype=torch.long).to(device)  # Shape: (1, seq_len)
+                output = self.model(tensor_input).last_hidden_state  # Shape: (1, seq_len, hidden_size)
                 embeddings.append(output.detach().cpu().numpy())
 
         return embeddings
-
 ##
 ## DNABert https://doi.org/10.1093/bioinformatics/btab083
 ## Download from https://github.com/jerryji1993/DNABERT
