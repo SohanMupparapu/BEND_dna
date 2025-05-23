@@ -8,7 +8,7 @@ import argparse
 from bend.utils import embedders, Annotation
 from tqdm.auto import tqdm
 from scipy import spatial
-
+from bend.models.dilated_cnn import ConvNetForMaskedLM
 
 def main():
 
@@ -16,7 +16,7 @@ def main():
     parser.add_argument('bed_file', type=str, help='Path to the bed file')
     parser.add_argument('out_file', type=str, help='Path to the output file')
     # model can be any of the ones supported by bend.utils.embedders
-    parser.add_argument('model', choices=['nt', 'dnabert', 'awdlstm', 'gpn', 'convnet', 'genalm', 'hyenadna', 'dnabert2','grover'], type=str, help='Model architecture for computing embeddings')
+    parser.add_argument('model', choices=['nt', 'dnabert', 'awdlstm', 'gpn', 'convnet', 'genalm', 'hyenadna', 'dnabert2','grover','resnet'], type=str, help='Model architecture for computing embeddings')
     parser.add_argument('checkpoint', type=str, help='Path to or name of the model checkpoint')
     parser.add_argument('genome', type=str, help='Path to the reference genome fasta file')
     parser.add_argument('--extra_context', type=int, default=256, help='Number of extra nucleotides to include on each side of the sequence')
@@ -58,6 +58,9 @@ def main():
     elif args.model == 'grover':
         embedder = embedders.GROVEREmbedder(args.checkpoint)
         kwargs['upsample_embeddings'] = True # each nucleotide has an embedding
+    elif args.model=='resnet':
+        mlm_encoder = ConvNetForMaskedLM.from_pretrained(args.checkpoint)
+        embedder=mlm_encoder.model
     else:
         raise ValueError('Model not supported')
     
