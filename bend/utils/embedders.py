@@ -23,7 +23,7 @@ from functools import partial
 import os
 
 from bend.models.awd_lstm import AWDLSTMModelForInference
-from bend.models.dilated_cnn import ConvNetModel
+from bend.models.dilated_cnn import ConvNetModel,ConvNetForMaskedLM
 from bend.models.gena_lm import BertModel as GenaLMBertModel
 from bend.models.hyena_dna import HyenaDNAPreTrainedModel, CharacterTokenizer
 from bend.models.dnabert2 import BertModel as DNABert2BertModel
@@ -163,6 +163,57 @@ class GPNEmbedder(BaseEmbedder):
         return embeddings
 
 
+
+class ConvNetEmbedder(BaseEmbedder):
+    """
+    Embed using the GPN-inspired ConvNet baseline LM trained in BEND.
+    Modified to use one-hot encoding from OneHotEmbedder instead of tokenizer.
+    """
+
+    def load_model(self, model_path, **kwargs):
+        """
+        Load the ConvNet model trained in BEND.
+
+        Parameters
+        ----------
+        model_path : str
+            The path to the model directory.
+        """
+        logging.set_verbosity_error()
+        if not os.path.exists(model_path):
+            print(f'Path {model_path} does not exist, downloading...')
+            download_model(model='convnet', destination_dir=model_path)
+        
+        mlm_encoder = ConvNetForMaskedLM.from_pretrained(model_path)
+        self.model = mlm_encoder.model.to(device).eval()
+
+        # Use OneHotEmbedder for encoding
+        self.encoder = OneHotEmbedder()
+
+    def embed(self, sequences: List[str], disable_tqdm: bool = False, upsample_embeddings: bool = False):
+        """
+        Embed sequences using one-hot encoding and the ConvNet model.
+
+        Parameters
+        ----------
+        sequences : List[str]
+            List of sequences to embed.
+
+        Returns
+        -------
+        List[np.ndarray]
+            List of embeddings.
+        """
+        embeddings = []
+        with torch.no_grad():
+            encoded_sequences = self.encoder.embed(sequences, disable_tqdm=disable_tqdm, return_onehot=True)
+
+            for seq in tqdm(encoded_sequences, disable=disable_tqdm):
+                tensor_input = torch.tensor(seq, dtype=torch.float32).to(device)  # (1, seq_len, vocab_size)
+                output = self.model(tensor_input).last_hidden_state
+                embeddings.append(output.detach().cpu().numpy())
+
+        return embeddings
 
 ##
 ## DNABert https://doi.org/10.1093/bioinformatics/btab083
@@ -518,61 +569,7 @@ class AWDLSTMEmbedder(BaseEmbedder):
             
         return embeddings
 
-class ConvNetEmbedder(BaseEmbedder):
-    """
-    Embed using the GPN-inspired ConvNet baseline LM trained in BEND.
-    """
-    def load_model(self, model_path, **kwargs):
-        """
-        Load the GPN-inspired ConvNet baseline LM trained in BEND.
-
-        Parameters
-        ----------
-        model_path : str
-            The path to the model directory.
-            If the model path does not exist, it will be downloaded from https://sid.erda.dk/cgi-sid/ls.py?share_id=dbQM0pgSlM&current_dir=pretrained_models&flags=f
-        """
-
-        logging.set_verbosity_error()
-        if not os.path.exists(model_path):
-            print(f'Path {model_path} does not exists, model is downloaded from https://sid.erda.dk/cgi-sid/ls.py?share_id=dbQM0pgSlM&current_dir=pretrained_models&flags=f')
-            download_model(model = 'convnet',
-                           destination_dir = model_path)
-        # load tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
-        # load model        
-        self.model = ConvNetModel.from_pretrained(model_path).to(device).eval()
-    
-    def embed(self, sequences: List[str], disable_tqdm: bool = False, upsample_embeddings: bool = False):
-        """
-        Embed sequences using the GPN-inspired ConvNet baseline LM trained in BEND.
-
-        Parameters
-        ----------
-        sequences : List[str]
-            List of sequences to embed.
-        disable_tqdm : bool, optional
-            Whether to disable the tqdm progress bar. Defaults to False.
-        upsample_embeddings : bool, optional
-            Whether to upsample the embeddings to the length of the input sequence. Defaults to False.
-            Only provided for compatibility with other embedders. GPN embeddings are already the same length as the input sequence.
-
-        Returns
-        -------
-        List[np.ndarray]
-            List of embeddings.
-        """
-        embeddings = [] 
-        with torch.no_grad():
-            for s in tqdm(sequences, disable=disable_tqdm):
-                input_ids = self.tokenizer(s, return_tensors="pt", return_attention_mask=False, return_token_type_ids=False)["input_ids"]
-                input_ids = input_ids.to(device)
-                embedding = self.model(input_ids=input_ids).last_hidden_state
-                embeddings.append(embedding.detach().cpu().numpy())
-
-        return embeddings
-    
-        
+ 
 
 class GENALMEmbedder(BaseEmbedder):
     """
